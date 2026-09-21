@@ -1,0 +1,44 @@
+name: sync
+# 真源是 woowoeth/woowoeth.github.io 的 tools/mcp/，这个仓是它的镜像。
+# 存在的理由：目录站和爬虫（Glama、PulseMCP…）收录的单位是「一个仓库」，
+# 而埋在一个 230 MB 网站仓子目录里的 server，它们认不出来；
+# 顺便让装法从 #subdirectory=tools/mcp 那一长串缩短成一个仓库地址。
+#
+# 同步方向是「这边去拉」：拉不需要跨仓 token，推需要，而那个 token
+# 就是一份要有人保管、会过期的密钥。
+#
+# 走 GitHub API 不走 raw：raw.githubusercontent.com 有约五分钟 CDN 缓存，
+# 主仓刚推完就跑这个，会把旧的那一份当成新的提交上来**并且显示成功**。
+on:
+  schedule:
+    - cron: "23 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  pull:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: 从主仓拉 tools/mcp/
+        run: |
+          set -euo pipefail
+          B=https://api.github.com/repos/woowoeth/woowoeth.github.io/contents/tools/mcp
+          for f in ourword_mcp.py pyproject.toml README.md LICENSE Dockerfile server.json; do
+            curl -fsSL -H "Accept: application/vnd.github.raw" \
+                 -H "Authorization: Bearer ${{ github.token }}" \
+                 "$B/$f" -o "$f"
+            test -s "$f"
+          done
+          python3 -c "import ast,io;ast.parse(io.open('ourword_mcp.py',encoding='utf-8').read())"
+      - name: 有变化才提交
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then
+            git config user.name  "ourword-sync"
+            git config user.email "noreply@ourword.ai"
+            git add -A && git commit -m "同步主仓 tools/mcp/ 的改动" && git push
+          else
+            echo "没有变化"
+          fi
